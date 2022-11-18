@@ -1,0 +1,482 @@
+---
+title: "COVID-19 Europe Vaccination Progress"
+author: "Petar Todorovski"
+date: '2022-07-11'
+output: 
+  prettydoc::html_pretty: 
+    theme: cayman
+bibliography: references.bib
+nocite: '@*'    
+---
+<style type="text/css">
+
+body, td, p{
+   font-size: 14px;
+}
+
+h1{font-size: 24px}
+h2{font-size: 22px}
+h3{font-size: 20px}
+h4{font-size: 18px}
+h5{font-size: 16px}
+h6{font-size: 16px}
+
+code.r{
+  font-size: 12px;
+}
+pre {
+  font-size: 12px
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error=TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(bit64)
+library(DT)
+library(ggplot2)
+library(ggthemes)
+library(gganimate)
+
+options(
+  DT.options = list(
+    autoWidth = FALSE,
+    width = '100%',
+    scrollX = TRUE,
+    columnDefs = list(list(
+      width = '5%',
+      targets = "_all"
+    ), list(className = 'dt-left', targets = 0)),
+    initComplete = JS(
+      "function(settings, json) {",
+      "$(this.api().table().header()).css({'font-size': '15px'});",
+      "$(this.api().table().body()).css({'font-size': '13px'});",
+      "}"    )))
+
+```
+
+## Introduction
+ 
+Safe and effective vaccines are available that provide strong protection against serious illness, hospitalization and death from COVID-19. Billions of people have been vaccinated against COVID-19. Getting vaccinated protects against COVID-19, helps to end the pandemic and stops new variants emerging.
+
+There are several COVID-19 vaccines validated for use by the World Health Organization. The first mass vaccination programme started in early December 2020. There is some evidence that being fully vaccinated can prevent infection with the COVID-19 virus. This means that being vaccinated is likely to help protect people around you by making it less likely that you will pick up the virus and pass it on.
+
+Research is ongoing to understand the extent to which being vaccinated stops you from becoming infected and passing the virus on to others.
+
+## Presentation and description of the problem
+
+This paper focuses on the monthly progress of vaccination in Slovenia since mass vaccination programme, moreover the rate of vaccinated population in Europe will be presented. 
+
+## Presentation of the data and description of the problem
+
+
+The data for this project is obtained from kaggle. The dataset is [COVID-19 World Vaccination Progress](https://www.kaggle.com/datasets/gpreda/covid-world-vaccination-progress). The dataset is presented below. 
+
+
+```{r, echo = F}
+
+"country_vaccinations.csv" %>% read.csv() -> df1
+"countries.csv" %>% read.csv() -> df3
+glimpse(df1)
+
+
+```
+
+The dataset shows the vaccination rate on global level since the start of the COVID-19 pandemic. For the purpose of this project we decided to narrow down the dataset and focus on the vaccination rate in Europe, moreover a more in depth analysis will be presented for the distributed vaccinates in Slovenia.
+
+  
+##  Data preparation
+
+In order to continue with the exploratory data analysis we first perform some changes to data formats, and we append a column containing the name of continent.
+
+```{r}
+df3.formatted <- df3 %>% select(Name, Continent)
+colnames(df3.formatted)[2] <- "continent"
+df1.formatted <- df1 %>%
+  mutate(date = as.Date(date),
+         month_char = as.character(date)) %>%
+  mutate_at(
+    c(
+      'people_vaccinated',
+      'daily_vaccinations_raw',
+      'daily_vaccinations',
+      'daily_vaccinations_per_million'
+    ),
+    as.integer
+  ) %>%
+  inner_join(df3.formatted, by = c("country" = "Name"))
+
+```
+
+## Exploratory data analysis 
+
+In the table we can see the percentage of population that is fully immunized and the total number of applied vaccinations per country on global level
+
+```{r}
+immunizations_applied_continent <- df1.formatted %>%
+  group_by(country) %>%
+  filter(country != "Gibraltar") %>%
+  summarise(
+    population_fully_vaccinated = max(people_fully_vaccinated_per_hundred, na.rm = TRUE),
+    vaccinations = max(total_vaccinations, na.rm = TRUE), .groups = 'keep'
+  ) %>%
+  arrange(desc(population_fully_vaccinated))
+
+datatable(immunizations_applied_continent) %>% formatCurrency(
+  c("vaccinations"),
+  currency = "",
+  interval = 3,
+  mark = ",",
+  digits = 0
+)
+
+```
+
+<br><br>
+
+### Immunization by country in Europe
+
+In this section follows a presentation of the vaccination rate in Europe. 
+
+#### Data preparation
+
+```{r}
+immunizations_applied_country <- df1.formatted %>%
+  group_by(country) %>%
+  filter(continent=="Europe" & country != "Gibraltar") %>% 
+  
+  summarise(
+                    vaccinations = max(total_vaccinations, na.rm = TRUE),
+                    people_vaccinated = max(people_vaccinated, na.rm = TRUE),
+                    population_vaccinated = max(people_vaccinated_per_hundred, na.rm = TRUE),
+                    population_fully_vaccinated = max(people_fully_vaccinated_per_hundred, na.rm = TRUE),
+                    ) %>%
+  arrange(desc(population_vaccinated)) %>% 
+  mutate(ranking = 1:n())
+
+immunizations_applied_country_temp <- immunizations_applied_country %>% 
+  select(ranking, everything())
+
+colnames(immunizations_applied_country_temp) <-
+  c(
+    "ranking",
+    "country",
+    "vaccinations",
+    "people vacinated",
+    "population vaccinated",
+    "population fully vaccinated"
+  )
+```
+
+<br>
+
+#### Vaccination progress - population vaccinated 
+ 
+Firstly we can see rate of population that is fully vaccinated in each country
+
+```{r, fig.width=10,fig.height= 7, fig.align = 'center' }
+
+
+immunizations_applied_country %>%
+    ggplot(aes(x =reorder(country, -population_fully_vaccinated), 
+               y = population_fully_vaccinated, 
+               label = ceiling(population_fully_vaccinated)))+
+    geom_bar(aes(fill = population_fully_vaccinated), 
+             position = "identity", 
+             stat = "identity", 
+             show.legend = FALSE)+
+    labs(x = "Country", 
+         y = "People Fully Vaccinated") +
+    geom_text(color = "black", vjust = -0.2, size = 4)+
+    theme_minimal()+ 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10),
+          axis.text.y = element_text(hjust = 1.5, lineheight = 20, size = 10)) +
+    scale_fill_gradient(low = "#164313", high = "#61f756")
+
+```
+
+<br>
+
+From the chart we can conclude that Portugal has the highest vaccination rate, and lowest vaccination rate is in Bosnia and Herzegovina. 
+
+<br>
+<br>
+
+#### Vaccination progress - applied vaccinations
+
+Below we can see the total number of vaccinations vaccines each country distributed.
+
+```{r, fig.width=10,fig.height= 7, fig.align = 'center' }
+
+options(scipen=999)
+
+immunizations_applied_country %>% 
+  ggplot(aes(x = vaccinations, 
+             y = country))+ 
+  geom_bar(aes(fill = country), 
+           position = "identity", 
+           stat = "identity", 
+           show.legend = FALSE, ) +
+  labs(title="Number of vaccines distributed by each country", 
+       x = "Total number of vaccines", y = "Country")+
+    theme_minimal() +
+
+  theme(axis.text.y = element_text(hjust = 1, lineheight = 20, size = 10),
+        axis.text.x = element_text(vjust = 2,size = 10))
+
+```
+
+<br>
+
+#### Top 10 ranked countries by vaccinated population 
+
+The animation below shows the top 10 ranked countries by vaccinated population for each month since the start of the mass vaccination. 
+
+```{r }
+temp <- df1.formatted %>%
+  filter(continent == "Europe" & country != "Gibraltar") %>%
+  mutate(country = str_replace(country, "United Kingdom", "UK")) %>%
+  filter(year(date) >= 2021) %>%
+  group_by(country, date) %>%
+  summarise(
+    vaccinations = max(total_vaccinations, na.rm = TRUE),
+    people_vaccinated = max(people_vaccinated, na.rm = TRUE),
+    population_vaccinated = max(people_vaccinated_per_hundred, na.rm = TRUE),
+  )
+
+ranked_by_year <- temp %>%
+  group_by(date) %>%
+  arrange(date, -population_vaccinated) %>%
+  mutate(rank = 1:n()) %>%
+  filter(rank <= 10)
+
+
+my_theme <- theme_classic(base_family = "Times") +
+  theme(axis.text.y = element_blank()) +
+  theme(axis.ticks.y = element_blank()) +
+  theme(axis.line.y = element_blank()) +
+  theme(legend.background = element_rect(fill = "gainsboro")) +
+  theme(plot.background = element_rect(fill = "gainsboro")) +
+  theme(panel.background = element_rect(fill = "gainsboro"))
+
+my_plot <- ranked_by_year %>%
+  ggplot() +
+  aes(xmin = 0,
+      xmax = population_vaccinated) +
+  aes(ymin = rank - .45,
+      ymax = rank + .45,
+      y = rank) +
+  facet_wrap( ~ ym(date)) +
+  geom_rect(alpha = .7) +
+  aes(fill = country) +
+  scale_fill_viridis_d(option = "magma",
+                       direction = -1) +
+  scale_x_continuous(limits = c(-80, 550),
+                     breaks = c(0, 25, 50, 75, 100)) +
+  geom_text(col = "gray13",
+            hjust = "right",
+            aes(label = country),
+            x = -5) +
+  scale_y_reverse() +
+  labs(fill = NULL) +
+  labs(x = 'Population vacinated') +
+  labs(y = "") +
+  my_theme
+
+my_plot +
+  facet_null() +
+  scale_x_continuous(limits = c(-35, 150),
+                     breaks = c(0, 25, 50, 75, 100)) +
+  geom_text(
+    x = 192 ,
+    y = -10,
+    family = "Times",
+    hjust = "right",
+    
+    aes(label = as.character(date)),
+    size = 10,
+    col = "grey18"
+  ) +
+  aes(group = country) +
+  gganimate::transition_time(date,) -> animation_plot
+
+animate(animation_plot,
+        duration = 17,
+        nframes = 1200,
+        fps = 20)
+
+```
+
+<br>
+
+#### Vaccination progress - complete data 
+
+More details about the vaccination rate in Europe are shown in the table below
+
+```{r}
+
+datatable(immunizations_applied_country_temp,
+          rownames = FALSE) %>% formatCurrency(
+            c("vaccinations", "people vacinated"),
+            currency = "",
+            interval = 3,
+            mark = ",",
+            digits = 0
+          )
+
+
+```
+<br><br><br>
+
+### Immunization in Slovenia
+
+In this section follows a presentation of the vaccination rate in Slovenia. 
+<br>
+
+#### Data preparation
+
+```{r}
+immunizations_slov <- immunizations_applied_country_temp %>%
+  filter(country == "Slovenia")
+
+datatable(immunizations_slov,
+          rownames = FALSE,
+          options = list(dom = 't')) %>%
+  formatCurrency(
+    c("vaccinations", "people vacinated"),
+    currency = "",
+    interval = 3,
+    mark = ",",
+    digits = 0
+  )
+```
+
+The table show that Slovenia is on the 33rd place in Europe based on the vaccinated population.
+<br><br>
+
+#### Monthly vaccination progress 
+
+Further we will take a look on the monthly vaccination progress in Slovenia
+<br>
+
+```{r}
+
+slovenia_vaccines <- df1.formatted %>%
+  group_by(country, month_date = lubridate::floor_date(date, 'month_date')) %>%
+  filter(country == "Slovenia") %>%
+  summarise(
+    vaccinations_monthly = sum(daily_vaccinations, na.rm = TRUE),
+    people_vaccinated = max(people_vaccinated, na.rm = TRUE),
+    population_vaccinated = max(people_vaccinated_per_hundred, na.rm = TRUE),
+    population_fully_vaccinated = max(people_fully_vaccinated_per_hundred, na.rm = TRUE),
+  ) %>%
+  arrange(month_date)
+
+slovenia_vaccines_temp <- slovenia_vaccines %>% 
+  ungroup() %>% 
+  select(2:6)
+
+colnames(slovenia_vaccines_temp) <-
+  c(
+    "month",
+    "vaccinations",
+    "people vacinated",
+    "population vaccinated",
+    "population fully vaccinated"
+  )
+
+```
+
+<br>
+
+##### Monthy vaccination progress - population vaccinated 
+
+The below chart shows the monthly vaccination progress since the start of the mass vaccination programme in early December 2020
+
+
+```{r r, fig.width=10,fig.height= 7, fig.align = 'center'}
+slovenia_vaccines %>%
+  ggplot()+
+  geom_line(aes(
+    x = month_date,
+    y = people_vaccinated, group = 1), color = "blue", show.legend = FALSE
+
+  ) +
+  labs(title = "Montly vaccination rate",
+       x = "Month",
+       y = "Number of vaccinated people")+
+  scale_x_date(date_breaks = "1 months" , date_labels = "%b-%y") +
+ scale_y_continuous(breaks = seq(0, 1500000, by = 250000), limits = c(0,1264649))+
+  theme_minimal() +
+    theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(hjust = 1.4, size = 10)) +
+  transition_reveal(along = month_date)
+```
+<br>
+
+From the chart we can conclude that by the end of March 2022 in Slovenia more than 1 250 000 people were vaccinated. We can also see that the number of vaccinated people was continuously rising, moreover there is a rise with a higher rate until September 2021, and after that the vaccination rate is slowing down.
+
+<br>
+
+##### Monthy vaccination progress - applied vaccinations 
+
+The below chart shows the total number of vaccinations applied each month since the start of the mass vaccination programme in early December 2020
+
+```{r, fig.width=10,fig.height= 7, fig.align = 'center'}
+
+slovenia_vaccines %>%
+  ggplot(aes(x = month_date,
+             y = vaccinations_monthly, label = vaccinations_monthly)) +
+  geom_bar(
+    aes(fill = month_date),
+    position = "identity",
+    stat = "identity",
+    show.legend = FALSE
+  ) +
+  geom_text(color = "blue", vjust = -0.2) +
+  labs(title = "Number people vaccinated montly",
+       x = "Month",
+       y = "Vaccinations") +
+  scale_x_date(date_breaks = "1 months" , date_labels = "%b-%y") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+    axis.text.y = element_text(hjust = 1.5, size = 10)
+)
+
+```
+
+<br>
+
+From the chart we can see that the highest number of applied vaccines in Slovenia is in May 2021. 
+
+<br>
+
+##### Monthy vaccination progress - complete data 
+Details on how the vaccination progressed each month are shown in the table below. 
+
+```{r}
+datatable(slovenia_vaccines_temp, rownames = FALSE, options = list(pageLength = 8)) %>%
+  formatCurrency(
+    c("vaccinations", "people vacinated"),
+    currency = "",
+    interval = 3,
+    mark = ",",
+    digits = 0
+  )
+
+
+```
+
+<br>
+
+## Conclusion
+Based on the results of the exploratory data analysis we conclude that the country with the highest vaccination rate is United Arab Emirates on global level. After narrowing down the data set and focusing on the vaccination rate in Europe, we can conclude that Portugal has the highest vaccination rate, and lowest vaccination rate is in Bosnia and Herzegovina. 
+
+On the other hand, for the second part of the analysis, which focuses on the monthly progress of vaccination in Slovenia since mass vaccination programme, the results show that Slovenia's ranking based on the vaccinated population in Europe is 33. Moreover we conclude that by the end of March 2022 in Slovenia more than 1 250 000 people were vaccinated, which also corresponds to 60.84% of the total population.
+
+## References 
+
